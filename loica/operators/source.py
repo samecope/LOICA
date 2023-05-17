@@ -1,6 +1,11 @@
 from .operator import *
 import numpy as np
 from scipy.optimize import least_squares
+import os
+import julia
+from julia import Julia
+import csv
+import math
 
 class Source(Operator):
     """
@@ -31,7 +36,7 @@ class Source(Operator):
         Parameterize the Operator model that maps Input concentration into Output expression rate
     """
 
-    def __init__(self, output, rate, uri=None, sbol_comp=None, color='blue', name=None):
+    def __init__(self, output, rate=None, uri=None, sbol_comp=None, color='blue', name=None):
         super().__init__(output, name, uri, sbol_comp, color)
         self.rate = rate
 
@@ -134,3 +139,41 @@ class Source(Operator):
         self.rate = res.x[1]
 
 
+    def characterize_stochastic(self, flapjack, vector, media, strain, signal):
+        expression_df = flapjack.analysis(media=media, 
+                            strain=strain,
+                            vector=vector,
+                            signal=signal,
+                            type='Background Correct',
+                            ).sort_values(['Sample', 'Time'])
+        
+        output_dir = './source_csv_output/'
+
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+            
+        time_measurement_df = expression_df[expression_df.Study=="SC loica source rate 100, deg rate 1"][["Time", "Measurement"]].copy()
+        renamed_df = time_measurement_df.rename(columns={"Measurement":"X"})        
+        filename = output_dir + f'loica_srate100_degrate1_output.csv'
+        renamed_df.to_csv(filename, index = False)
+        
+        jl = Julia()
+        
+        jl.evalfile(r"path/to/source.jl/file/in/spice/installation")
+        
+        csv_path = "results/srate100_degrate1_test-estimates.csv"
+        
+        with open(csv_path, "r") as csvfile:
+            csvreader = csv.reader(csvfile)
+            next(csvreader)
+            row = next(csvreader)
+            log_source_rate = float(row[0])
+            log_degradation_rate = float(row[1])
+            
+        source_rate = math.exp(log_source_rate)
+        print("source rate = ", source_rate)
+        degradation_rate = math.exp(log_degradation_rate)
+        print("degradation rate = ", degradation_rate)
+        
+        self.rate = source_rate
+        
